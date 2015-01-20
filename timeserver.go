@@ -23,7 +23,13 @@ import (
 	"flag"
 	"net/http"
 	"os/exec"
+	"sync"
 )
+
+var cookieJar = struct {
+	sync.RWMutex
+	cookies map[string]string
+} {cookies: make(map[string]string)}
 
 // Parses flags and starts the server.  Prints an error message
 // if the target port is already in use.
@@ -31,8 +37,6 @@ func main() {
 	port := flag.Int("port", 8080, "Sets the server port")
 	version := flag.Bool("V", false, "Program version number")
 	flag.Parse()
-
-	cookieJar := make(map[string]string)
 	
 	portString := fmt.Sprintf(":%v", *port)
 
@@ -42,7 +46,7 @@ func main() {
 	}
 
 	http.HandleFunc("/", homePageHandler)
-	http.HandleFunc("/login?name=name", formHandler)
+	http.HandleFunc("/login?name=", formHandler)
     http.HandleFunc("/time", timeHandler)
     error := http.ListenAndServe(portString , nil)
 
@@ -89,20 +93,25 @@ func formHandler(response http.ResponseWriter, request *http.Request) {
 	cookie := &http.Cookie{Name:"COOKIE", Value:uuidString, Expires:time.Now().Add(356*24*time.Hour), HttpOnly:true}
 	http.SetCookie(response, cookie)
 
-	cookieJar[uuidString] = formName
+	cookieJar.Lock()
+	cookieJar.cookies[uuidString] = formName
+	cookieJar.Unlock()
 
 	http.Redirect(response, request, "/", http.StatusFound)
 
 }
 
 func homePageHandler(response http.ResponseWriter, request *http.Request) {
-	cookie, err := request.Cookie("COOKIE")
+	cookie, _ := request.Cookie("COOKIE")
 
-	if len(cookieJar) > 0 && cookieJar[cookie.Value] != "" {
-		fmt.Fprintf(response, "Greetings, %v", cookieJar[cookie.Value])
+	cookieJar.Lock()
+	if len(cookieJar.cookies) > 0 && cookieJar.cookies[cookie.Value] != "" {
+		fmt.Fprintf(response, "Greetings, %v", cookieJar.cookies[cookie.Value])
 	} else {
 		http.Redirect(response, request, "/login?name=name", http.StatusFound)
 	}
+	cookieJar.Unlock()
+
 }
 
 // Returns the current time in the format Hour:Minute:Second (AM/PM)
